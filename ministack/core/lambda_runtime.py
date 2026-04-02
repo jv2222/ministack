@@ -221,12 +221,33 @@ rl.on("line", async (line) => {
     delete event._arn;
 
     try {
-      const result = handlerFn(event, context);
-      // Support both sync and async (Promise) handlers
-      const resolved = (result && typeof result.then === "function")
-        ? await result
-        : result;
-      process.stdout.write(JSON.stringify({ status: "ok", result: resolved }) + "\n");
+      let settled = false;
+      const settle = (err, res) => {
+        if (settled) return;
+        settled = true;
+        if (err) {
+          process.stdout.write(JSON.stringify({
+            status: "error", error: String(err.message || err), trace: err.stack || ""
+          }) + "\n");
+        } else {
+          process.stdout.write(JSON.stringify({ status: "ok", result: res }) + "\n");
+        }
+      };
+      const callback = (err, res) => settle(err, res);
+      context.done = (err, res) => settle(err, res);
+      context.succeed = (res) => settle(null, res);
+      context.fail = (err) => settle(err || new Error("fail"));
+
+      const result = handlerFn(event, context, callback);
+      if (result && typeof result.then === "function") {
+        // Async/Promise handler
+        result.then(res => settle(null, res), err => settle(err));
+      } else if (handlerFn.length < 3 && result !== undefined) {
+        // Sync handler that doesn't accept callback and returned a value
+        settle(null, result);
+      }
+      // If handler accepts callback (arity >= 3) or returned undefined,
+      // we wait for callback/context.done/context.succeed/context.fail
     } catch (e) {
       process.stdout.write(JSON.stringify({
         status: "error", error: e.message, trace: e.stack
