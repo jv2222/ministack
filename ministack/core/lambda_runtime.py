@@ -183,6 +183,12 @@ rl.on("line", async (line) => {
       const { code_dir, module: modPath, handler: handlerName, env } = msg;
       Object.assign(process.env, env || {});
       patchAwsSdk();
+      // Load optional worker init script (e.g. ES compat patches, custom SDK config)
+      const workerInit = process.env.MINISTACK_WORKER_INIT_SCRIPT;
+      if (workerInit) {
+        try { require(path.resolve(workerInit)); }
+        catch (e) { console.error("MINISTACK_WORKER_INIT_SCRIPT error:", e.message); }
+      }
       try {
         const fullPath = path.resolve(code_dir, modPath);
         const mod = require(fullPath);
